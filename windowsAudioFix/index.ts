@@ -195,7 +195,7 @@ const settings = definePluginSettings({
 });
 
 export default definePlugin({
-    name: "WindowsAudioFix",
+    name: "Vesktop Audio Fix",
     description:
         "Routes only the streamed app's audio (or excludes your own client's audio) during screen share on Windows, via native WASAPI process-loopback capture.",
     authors: [{ name: "gtair", id: 1123259540176113724n }],

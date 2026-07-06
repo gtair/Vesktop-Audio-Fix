@@ -225,6 +225,9 @@ bool try_handle_resolve_hwnd(int argc, char **argv, int &exit_code)
 
 int main(int argc, char **argv)
 {
+    // Set binary mode for stdout immediately
+    _setmode(_fileno(stdout), _O_BINARY);
+
     int resolve_exit_code = 0;
     if (try_handle_resolve_hwnd(argc, argv, resolve_exit_code))
     {
@@ -243,8 +246,6 @@ int main(int argc, char **argv)
         std::cerr << "UNSUPPORTED: OS build does not support process-loopback capture" << std::endl;
         return 2;
     }
-
-    _setmode(_fileno(stdout), _O_BINARY);
 
     const auto com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(com_result))

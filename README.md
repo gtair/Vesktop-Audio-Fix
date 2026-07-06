@@ -1,6 +1,6 @@
 # Vesktop Audio Fix
 
-Stop your viewers from hearing themselves in your screen share.
+Stop your viewers from hearing themselves in your screen share (ON WINDOWS ONLY!).
 
 ## What it does
 

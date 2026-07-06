@@ -69,8 +69,6 @@ bool supports_process_loopback()
     version.dwOSVersionInfoSize = sizeof(version);
     if (rtl_get_version(&version) != 0) return false;
 
-    // Process-loopback (include/exclude) shipped with Windows 10 20348 (Server)
-    // / consumer builds around the same era used by the Include-only PR.
     return version.dwBuildNumber >= 20348;
 }
 

@@ -23,7 +23,11 @@ When streaming on Discord with Vesktop, viewers hear their own audio played back
 
 ## Permanent files
 
-The plugin relies on an external compiled binary, the code of which is [here](https://github.com/gtair/Vesktop-Audio-Fix/blob/main/capture.cc). It downloads this from the releases of this very github page. This file alongside it's own logs in `%Appdata%\Vesktop Audio Fix`
+The plugin relies on an external compiled binary, the code of which is [here](https://github.com/gtair/Vesktop-Audio-Fix/blob/main/capture.cc). It downloads this from the releases of this very github page. This file alongside it's own logs in `%Appdata%\Vesktop Audio Fix`.
+
+# "I don't trust your compiled binary!!1!!1"
+
+Understandable, I don't trust myself either. You can either preemptively provide `%Appdata%\Vesktop Audio Fix\capture.exe` in which case nothing gets downloaded or change the download link over [here](https://github.com/gtair/Vesktop-Audio-Fix/blob/5f9defe178f439c4ab724961209c3f575ba00bd8/windowsAudioFix/native.ts#L15) before building Vencord.
 
 # Settings
 * Buffer Size

@@ -19,10 +19,11 @@ When streaming on Discord with Vesktop, viewers hear their own audio played back
 2. build
 3. point Vesktop to the Vencord dist
 4. Enable in Vencord settings → Plugins → Show UserPlugins → Vesktop Audio Fix
--# Better explanation [in the discord for Vesktop](https://discord.com/channels/1015060230222131221/1257038407503446176)
+> [!TIP]
+> Better explanation [in the discord for Vesktop](https://discord.com/channels/1015060230222131221/1257038407503446176)
 
 
-5. Start a screen or window share
+6. Start a screen or window share
 
 ## Permanent files
 

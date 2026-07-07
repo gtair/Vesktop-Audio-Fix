@@ -76,7 +76,29 @@ function killActive(reason: CaptureStopReason, detail?: string) {
     }
     activeChild = null;
     readyConfirmed = false;
+    pcmBuffer.length = 0;
     nativeLog("INFO", "Capture stopped:", reason, detail ?? "");
+}
+
+/**
+ * Follows redirects and resolves with the final 200 response, or rejects on error / too many hops.
+ */
+function httpsGetFinal(url: string, hopsLeft: number): Promise<import("http").IncomingMessage> {
+    return new Promise((resolve, reject) => {
+        https.get(url, response => {
+            if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+                if (hopsLeft <= 0) {
+                    reject(new Error("Too many redirects"));
+                    return;
+                }
+                nativeLog("INFO", "Following redirect to:", response.headers.location);
+                response.resume(); // discard redirect body
+                httpsGetFinal(response.headers.location, hopsLeft - 1).then(resolve, reject);
+                return;
+            }
+            resolve(response);
+        }).on("error", reject);
+    });
 }
 
 function ensureHelperExists(): Promise<boolean> {
@@ -122,65 +144,39 @@ function ensureHelperExists(): Promise<boolean> {
             doResolve(false);
         });
 
-        const request = https.get(EXE_DOWNLOAD_URL, response => {
-            nativeLog("INFO", "Download response status:", response.statusCode);
-
-            // Follow one redirect hop (GitHub release asset URLs 302 to S3).
-            if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                nativeLog("INFO", "Following redirect to:", response.headers.location);
-                https
-                    .get(response.headers.location, redirected => {
-                        nativeLog("INFO", "Redirect response status:", redirected.statusCode);
-                        redirected.on("error", err => {
-                            nativeLog("ERROR", "Redirect response error:", err);
-                            file.destroy();
-                            doResolve(false);
-                        });
-                        redirected.on("data", chunk => {
-                            bytesWritten += chunk.length;
-                        });
-                        redirected.pipe(file);
-                    })
-                    .on("error", err => {
-                        nativeLog("ERROR", "Redirect request error:", err);
-                        file.destroy();
-                        doResolve(false);
-                    });
-                return;
-            }
-
-            if (response.statusCode !== 200) {
-                nativeLog("ERROR", "Download failed with status", response.statusCode);
-                file.destroy();
-                doResolve(false);
-                return;
-            }
-
-            response.on("error", err => {
-                nativeLog("ERROR", "Response stream error:", err);
-                file.destroy();
-                doResolve(false);
-            });
-            response.on("data", chunk => {
-                bytesWritten += chunk.length;
-            });
-            response.pipe(file);
-        });
-
-        request.on("error", err => {
-            nativeLog("ERROR", "Download request failed:", err);
-            file.destroy();
-            doResolve(false);
-        });
-
         const timeoutId = setTimeout(() => {
             if (!resolved) {
                 nativeLog("ERROR", "Download timeout (30s), bytes written:", bytesWritten);
                 file.destroy();
-                request.destroy();
                 doResolve(false);
             }
         }, 30000);
+
+        nativeLog("INFO", "Download response status: following up to 5 redirects");
+        httpsGetFinal(EXE_DOWNLOAD_URL, 5)
+            .then(response => {
+                nativeLog("INFO", "Final response status:", response.statusCode);
+                if (response.statusCode !== 200) {
+                    nativeLog("ERROR", "Download failed with status", response.statusCode);
+                    file.destroy();
+                    doResolve(false);
+                    return;
+                }
+                response.on("error", err => {
+                    nativeLog("ERROR", "Response stream error:", err);
+                    file.destroy();
+                    doResolve(false);
+                });
+                response.on("data", (chunk: Buffer) => {
+                    bytesWritten += chunk.length;
+                });
+                response.pipe(file);
+            })
+            .catch(err => {
+                nativeLog("ERROR", "Download request failed:", err);
+                file.destroy();
+                doResolve(false);
+            });
 
         file.on("finish", () => {
             clearTimeout(timeoutId);
@@ -254,6 +250,7 @@ export async function startCapture(
     activeChild = child;
 
     child.stdout.on("data", (chunk: Buffer) => {
+        if (activeChild !== child) return;
         if (!readyConfirmed) {
             readyConfirmed = true;
             nativeLog("INFO", "Capture started");

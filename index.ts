@@ -7,19 +7,29 @@ const CHANNELS = 2;
 async function log(...args: any[]) {
     console.log("[AudioFix]", ...args);
     try {
-        await (VencordNative.pluginHelpers as any).WindowsAudioFix?.logToFile?.(args);
+        await Native?.logToFile?.(args);
     } catch {
         /* logging failure is non-critical */
     }
 }
 
+const Native = (VencordNative.pluginHelpers as any)["Vesktop Audio Fix"];
+
 const origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
 
-let activeAudioContext: AudioContext | null = null;
-let activeProcessor: ScriptProcessorNode | null = null;
 let activeStopFn: (() => void) | null = null;
+let closingContextPromise: Promise<void> | null = null;
+let captureGeneration = 0;
 
-function buildTrackFromPcmStream(onStopped: () => void): { track: MediaStreamTrack; stop: () => void } {
+async function buildTrackFromPcmStream(onStopped: () => void): Promise<{ track: MediaStreamTrack; stop: () => void }> {
+    // Wait for any previous AudioContext to fully release its resources before
+    // creating a new one, otherwise the Web Audio scheduler on second+ streams
+    // can stutter from residual state.
+    if (closingContextPromise) {
+        await closingContextPromise;
+        closingContextPromise = null;
+    }
+
     const audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
     const processor = audioContext.createScriptProcessor(2048, 0, CHANNELS);
     const destination = audioContext.createMediaStreamDestination();
@@ -29,11 +39,24 @@ function buildTrackFromPcmStream(onStopped: () => void): { track: MediaStreamTra
     let chunkOffset = 0;
     let keepFilling = true;
 
+    const stop = () => {
+        keepFilling = false;
+        try {
+            processor.disconnect();
+        } catch {
+            /* already disconnected */
+        }
+        closingContextPromise = audioContext.close();
+        onStopped();
+    };
+
+    activeStopFn = stop;
+
     const fillBuffer = async () => {
         const bufferSize = settings.store.bufferSize ?? 8;
         while (keepFilling) {
             if (pendingChunks.length < bufferSize) {
-                const chunk = await (VencordNative.pluginHelpers as any).WindowsAudioFix?.getPcmChunk?.().catch(() => null);
+                const chunk = await Native?.getPcmChunk?.().catch(() => null);
                 if (chunk) {
                     const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
                     const input = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
@@ -67,32 +90,24 @@ function buildTrackFromPcmStream(onStopped: () => void): { track: MediaStreamTra
     };
 
     processor.connect(destination);
-    void audioContext.resume();
 
-    const stop = () => {
-        keepFilling = false;
-        try {
-            processor.disconnect();
-        } catch {
-            /* already disconnected */
-        }
-        void audioContext.close();
-        onStopped();
-    };
+    // Pre-fill the renderer buffer before starting playback so the first
+    // onaudioprocess callback always has data and doesn't pop with silence.
+    const prefill = Math.min(4, settings.store.bufferSize ?? 4);
+    while (keepFilling && pendingChunks.length < prefill) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
 
-    activeAudioContext = audioContext;
-    activeProcessor = processor;
-    activeStopFn = stop;
+    if (keepFilling) void audioContext.resume();
 
     return { track: destination.stream.getAudioTracks()[0], stop };
 }
 
 function teardownActiveCapture() {
+    captureGeneration++; // invalidate any pending ended handlers from old streams
     activeStopFn?.();
-    activeAudioContext = null;
-    activeProcessor = null;
     activeStopFn = null;
-    (VencordNative.pluginHelpers as any).WindowsAudioFix?.stopCapture?.().catch(() => {});
+    Native?.stopCapture?.().catch(() => {});
 }
 
 function getWindowHandleFromSourceId(sourceId: string): string | null {
@@ -106,34 +121,47 @@ async function resolveCaptureTarget(
 ): Promise<{ mode: "include" | "exclude"; pid: number } | null> {
     const settings = videoTrack.getSettings() as MediaTrackSettings & { displaySurface?: string };
     const sourceId = (settings as any).deviceId as string | undefined;
-    if (!sourceId) return null;
 
-    const isScreenShare = settings.displaySurface === "monitor";
+    log("resolveCaptureTarget: displaySurface=", settings.displaySurface, "sourceId=", sourceId);
+
+    if (!sourceId) {
+        log("resolveCaptureTarget: no sourceId, aborting");
+        return null;
+    }
+
+    const isScreenShare = settings.displaySurface === "monitor" || sourceId.startsWith("screen:");
     const isWindowShare = !isScreenShare && (settings.displaySurface === "window" || sourceId.startsWith("window:"));
 
     if (isWindowShare) {
         const hwnd = getWindowHandleFromSourceId(sourceId);
         if (!hwnd) return null;
 
-        const pid = await (VencordNative.pluginHelpers as any).WindowsAudioFix?.resolveWindowPid?.(hwnd);
+        const pid = await Native?.resolveWindowPid?.(hwnd);
+        if (!pid) log("resolveCaptureTarget: resolveWindowPid returned null for hwnd=", hwnd);
         return pid ? { mode: "include", pid } : null;
     }
 
     if (isScreenShare) {
-        const mainPid = await (VencordNative.pluginHelpers as any).WindowsAudioFix?.getMainProcessPid?.();
+        const mainPid = await Native?.getMainProcessPid?.();
+        if (!mainPid) log("resolveCaptureTarget: getMainProcessPid returned null");
         return mainPid ? { mode: "exclude", pid: mainPid } : null;
     }
 
+    log("resolveCaptureTarget: unrecognized surface/sourceId, cannot determine target");
     return null;
 }
 
 async function patchedGetDisplayMedia(constraints: DisplayMediaStreamOptions): Promise<MediaStream> {
+    log("getDisplayMedia intercepted, platform=", process.platform);
     const stream = await origGetDisplayMedia(constraints);
 
     if (process.platform !== "win32") return stream;
 
     const videoTrack = stream.getVideoTracks()[0];
-    if (!videoTrack) return stream;
+    if (!videoTrack) {
+        log("no video track in stream, skipping");
+        return stream;
+    }
 
     const target = await resolveCaptureTarget(videoTrack).catch(err => {
         log(`Could not determine capture target (${err?.message ?? err}).`);
@@ -141,10 +169,19 @@ async function patchedGetDisplayMedia(constraints: DisplayMediaStreamOptions): P
     });
 
     if (!target) {
+        log("could not resolve capture target, passing stream through unchanged");
         return stream;
     }
 
-    const startResult = await (VencordNative.pluginHelpers as any).WindowsAudioFix?.startCapture?.(
+    // Stop previous session's audio graph before starting a new one.
+    // startCapture (below) handles killing the native process; we just need
+    // the AudioContext closed so buildTrackFromPcmStream can await it.
+    const thisGeneration = ++captureGeneration;
+    const prevStop = activeStopFn;
+    activeStopFn = null;
+    prevStop?.();
+
+    const startResult = await Native?.startCapture?.(
         target.mode,
         target.pid,
         settings.store.bufferSize
@@ -165,7 +202,7 @@ async function patchedGetDisplayMedia(constraints: DisplayMediaStreamOptions): P
         t.stop();
     }
 
-    const { track } = buildTrackFromPcmStream(() => {
+    const { track, stop } = await buildTrackFromPcmStream(() => {
         log("PCM stream stopped");
     });
     stream.addTrack(track);
@@ -175,7 +212,13 @@ async function patchedGetDisplayMedia(constraints: DisplayMediaStreamOptions): P
     videoTrack.addEventListener(
         "ended",
         () => {
-            teardownActiveCapture();
+            // Always clean up this session's audio graph.
+            stop();
+            // Only stop native capture if no newer session has taken over.
+            if (captureGeneration === thisGeneration) {
+                activeStopFn = null;
+                Native?.stopCapture?.().catch(() => {});
+            }
         },
         { once: true }
     );

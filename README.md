@@ -27,11 +27,11 @@ When streaming on Discord with Vesktop, viewers hear their own audio played back
 
 ## Permanent files
 
-The plugin relies on an external compiled binary, the code of which is [here](https://github.com/gtair/Vesktop-Audio-Fix/blob/main/capture.cc). It downloads this from the releases of this very github page. This file alongside it's own logs in `%Appdata%\Vesktop Audio Fix`.
+The plugin ***generates*** a powershell file ***from it's own code***. This file, alongside the logs of the plugin, are stored in `%appdata%\Vesktop Audio Fix`.
 
-## "I don't trust your compiled binary!!1!!1"
+## Vesktop/Vencord compliance
 
-Understandable, I don't trust myself either. You can either preemptively provide `%Appdata%\Vesktop Audio Fix\capture.exe` in which case nothing gets downloaded or change the download link over [here](https://github.com/gtair/Vesktop-Audio-Fix/blob/5f9defe178f439c4ab724961209c3f575ba00bd8/windowsAudioFix/native.ts#L15) before building Vencord.
+In order to comply with the rules of the plugins forum channel, I had to switch approaches. The script used to download a compiled cpp binary. I had to translate this cpp binary into a jumbled mess of C# and Powershell so that there is no compiled code being shipped with the plugin. This is extremely unstable from my experience. It also might trigger your antivirus but, as you can see in the source files, there is no virus. It's just a ps script being dropped and using Add-Type. That is very sketchy in the eyes of EDR.
 
 # Settings
 * Buffer Size

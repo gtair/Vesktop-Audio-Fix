@@ -33,5 +33,5 @@ The plugin ***generates*** a powershell file ***from it's own code***. This file
 
 In order to comply with the rules of the plugins forum channel, I had to switch approaches. The script used to download a compiled cpp binary. I had to translate this cpp binary into a jumbled mess of C# and Powershell so that there is no compiled code being shipped with the plugin. This is extremely unstable from my experience. It also might trigger your antivirus but, as you can see in the source files, there is no virus. It's just a ps script being dropped and using Add-Type. That is very sketchy in the eyes of EDR.
 
-# Settings
+## Settings
 * Buffer Size

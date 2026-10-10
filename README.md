@@ -29,9 +29,5 @@ When streaming on Discord with Vesktop, viewers hear their own audio played back
 
 The plugin ***generates*** a powershell file ***from it's own code***. This file, alongside the logs of the plugin, are stored in `%appdata%\Vesktop Audio Fix`.
 
-## Vesktop/Vencord compliance
-
-In order to comply with the rules of the plugins forum channel, I had to switch approaches. The script used to download a compiled cpp binary. I had to translate this cpp binary into a jumbled mess of C# and Powershell so that there is no compiled code being shipped with the plugin. This is extremely unstable from my experience. It also might trigger your antivirus but, as you can see in the source files, there is no virus. It's just a ps script being dropped and using Add-Type. That is very sketchy in the eyes of EDR but hasn't caused any issues for me *yet*. If you want the version that actually works, head over to [this](https://github.com/gtair/Vesktop-Audio-Fix/tree/nonconformity) branch
-
 ## Settings
-* Buffer Size
+* Buffer Size - best kept alone unless your viewers are experiencing audio stuttering / buffering
